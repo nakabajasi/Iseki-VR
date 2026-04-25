@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>遺跡空間ビューワー v0.2.1</title>
+  <style>
+    :root {
+      --hud-bg: rgba(18, 18, 20, 0.78);
+      --hud-fg: #f4f1ec;
+      --accent: #d8a05a;
+      --line: rgba(255, 255, 255, 0.18);
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      --jp-sans: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+      --jp-serif: "Hiragino Mincho ProN", "Noto Serif JP", serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #000;
+      color: var(--hud-fg);
+      font-family: var(--jp-sans);
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+      overscroll-behavior: none;
+    }
+    canvas { display: block; touch-action: none; }
+
+    #permission-overlay {
+      position: fixed; inset: 0;
+      background: radial-gradient(ellipse at center, #1a1612 0%, #000 80%);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 1.5rem;
+      z-index: 100;
+      padding: 2rem;
+      text-align: center;
+    }
+    #permission-overlay h1 {
+      font-family: var(--jp-serif);
+      font-size: 1.5rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+    }
+    #permission-overlay p {
+      font-size: 0.9rem;
+      line-height: 1.7;
+      max-width: 22rem;
+      color: rgba(244, 241, 236, 0.75);
+    }
+    #permission-btn {
+      margin-top: 0.5rem;
+      padding: 0.9rem 2.4rem;
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      font-family: var(--jp-sans);
+      font-size: 1rem;
+      letter-spacing: 0.08em;
+      border-radius: 2px;
+      cursor: pointer;
+    }
+    #permission-btn:active { background: var(--accent); color: #1a1612; }
+    #permission-overlay .hint {
+      margin-top: 1rem;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: rgba(255,255,255,0.4);
+    }
+
+    #hud {
+      position: fixed; inset: 0;
+      pointer-events: none;
+      z-index: 10;
+    }
+    #hud .top-bar {
+      position: absolute;
+      top: env(safe-area-inset-top, 0); left: 0; right: 0;
+      padding: 0.6rem 1rem;
+      display: flex; justify-content: space-between; align-items: flex-start;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      mix-blend-mode: difference;
+    }
+    #hud .top-bar .title {
+      font-family: var(--jp-serif);
+      font-size: 0.85rem;
+      letter-spacing: 0.12em;
+      color: rgba(255,255,255,0.85);
+    }
+    #hud .top-bar .stats {
+      color: rgba(255,255,255,0.65);
+      text-align: right;
+      line-height: 1.4;
+    }
+    #hud .bottom-bar {
+      position: absolute;
+      bottom: env(safe-area-inset-bottom, 0); left: 0; right: 0;
+      padding: 0.6rem 1rem;
+      display: flex; justify-content: space-between; align-items: flex-end;
+    }
+    #move-hint {
+      font-family: var(--jp-sans);
+      font-size: 0.75rem;
+      color: rgba(255,255,255,0.55);
+      background: rgba(0,0,0,0.35);
+      padding: 0.4rem 0.8rem;
+      border-radius: 2px;
+      backdrop-filter: blur(4px);
+    }
+    #reset-btn {
+      pointer-events: auto;
+      background: var(--hud-bg);
+      color: var(--hud-fg);
+      border: 1px solid var(--line);
+      padding: 0.5rem 0.9rem;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      border-radius: 2px;
+      cursor: pointer;
+    }
+    #crosshair {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.35);
+      mix-blend-mode: difference;
+    }
+    #info-panel {
+      position: fixed;
+      bottom: 4rem; left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      max-width: 90%;
+      width: 28rem;
+      padding: 1.2rem 1.4rem;
+      background: var(--hud-bg);
+      border-left: 2px solid var(--accent);
+      backdrop-filter: blur(10px);
+      color: var(--hud-fg);
+      font-family: var(--jp-serif);
+      opacity: 0;
+      transition: opacity 0.5s, transform 0.5s;
+      pointer-events: none;
+      z-index: 20;
+    }
+    #info-panel.visible {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    #info-panel .label {
+      display: block;
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--accent);
+      letter-spacing: 0.18em;
+      margin-bottom: 0.4rem;
+    }
+    #info-panel .title {
+      font-size: 1.1rem;
+      font-weight: 500;
+      margin-bottom: 0.4rem;
+    }
+    #info-panel .body {
+      font-size: 0.85rem;
+      line-height: 1.7;
+      color: rgba(244,241,236,0.85);
+    }
+    .hidden { display: none !important; }
+    #boot-error {
+      position: fixed; inset: 0;
+      background: #200;
+      color: #faa;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      padding: 2rem;
+      white-space: pre-wrap;
+      z-index: 200;
+      overflow: auto;
+    }
+  </style>
+</head>
+<body>
+  <div id="permission-overlay">
+    <h1>遺跡空間ビューワー</h1>
+    <p>iPhoneを実際の遺跡にかざして、復元された3D空間内を歩き回ります。<br>
+       端末の向きを使うため、モーションセンサーへのアクセス許可をお願いします。</p>
+    <button id="permission-btn">START</button>
+    <div class="hint">画面長押しで前進 / 向きはジャイロで操作<br>(PCはマウスドラッグ + WASD)</div>
+  </div>
+
+  <canvas id="canvas"></canvas>
+
+  <div id="hud">
+    <div class="top-bar">
+      <span class="title">SITE VIEWER</span>
+      <span class="stats" id="stats">--</span>
+    </div>
+    <div id="crosshair"></div>
+    <div class="bottom-bar">
+      <span id="move-hint">画面を長押しで前進</span>
+      <button id="reset-btn">RESET</button>
+    </div>
+  </div>
+
+  <div id="info-panel">
+    <span class="label">EXPLANATION</span>
+    <div class="title" id="info-title"></div>
+    <div class="body" id="info-body"></div>
+  </div>
+
+  <!-- Three.js r128 (cdnjs) -- artifact内で許可されているCDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <!-- 起動時エラーをユーザーに見せる -->
+  <script>
+    window.addEventListener('error', (e) => {
+      const div = document.createElement('div');
+      div.id = 'boot-error';
+      div.textContent = '[起動エラー]\n' + (e.message || e) + '\n' + (e.filename || '') + ':' + (e.lineno || '');
+      document.body.appendChild(div);
+    });
+  </script>
+
+  <script>
+    // ===========================================================================
+    // 設定
+    // ===========================================================================
+    const CONFIG = {
+      eyeHeight: 1.55,
+      walkSpeed: 1.6,
+      collisionRadius: 0.35,
+      stepUpMax: 0.45,
+      slopeCosMin: 0.5,
+      climbSpeed: 6.0,
+      fallSpeed: 8.0,
+      fov: 75,
+      nearPlane: 0.05,
+      farPlane: 500,
+    };
+
+    // ===========================================================================
+    // シーン初期化
+    // ===========================================================================
+    const canvas = document.getElementById('canvas');
+    const renderer = new THREE.WebGLRenderer({
+      canvas, antialias: true, powerPreference: 'high-performance',
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    // r128 は outputEncoding (新APIの outputColorSpace ではない)
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xb8c4cc);
+    scene.fog = new THREE.Fog(0xb8c4cc, 30, 120);
+
+    const camera = new THREE.PerspectiveCamera(
+      CONFIG.fov, window.innerWidth / window.innerHeight,
+      CONFIG.nearPlane, CONFIG.farPlane
+    );
+    camera.position.set(0, CONFIG.eyeHeight, 5);
+
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x6b5d4f, 0.6);
+    scene.add(hemi);
+    const sun = new THREE.DirectionalLight(0xffeacc, 1.2);
+    sun.position.set(8, 14, 6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -25; sun.shadow.camera.right = 25;
+    sun.shadow.camera.top = 25; sun.shadow.camera.bottom = -25;
+    sun.shadow.bias = -0.0005;
+    scene.add(sun);
+
+    // ===========================================================================
+    // コリジョン
+    // ===========================================================================
+    const WALKABLE = [];
+    const AABB = [];
+
+    function markWalkable(mesh) { WALKABLE.push(mesh); }
+    function markBlocking(mesh) {
+      mesh.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(mesh);
+      AABB.push({ min: box.min.clone(), max: box.max.clone() });
+    }
+    function markBoth(mesh) { markWalkable(mesh); markBlocking(mesh); }
+
+    function isBlocked(x, z, footY) {
+      const r = CONFIG.collisionRadius;
+      for (const c of AABB) {
+        if (footY >= c.max.y - CONFIG.stepUpMax) continue;
+        if (x > c.min.x - r && x < c.max.x + r &&
+            z > c.min.z - r && z < c.max.z + r) return true;
+      }
+      return false;
+    }
+
+    const _down = new THREE.Vector3(0, -1, 0);
+    const _ray = new THREE.Raycaster();
+    const _origin = new THREE.Vector3();
+    function findGround(x, z, footY) {
+      _origin.set(x, footY + CONFIG.stepUpMax + 0.05, z);
+      _ray.set(_origin, _down);
+      _ray.far = 500;
+      const hits = _ray.intersectObjects(WALKABLE, false);
+      for (const h of hits) {
+        if (!h.face) continue;
+        const n = h.face.normal.clone()
+          .transformDirection(h.object.matrixWorld).normalize();
+        if (n.y < CONFIG.slopeCosMin) continue;
+        return h.point.y;
+      }
+      return null;
+    }
+
+    // ===========================================================================
+    // テストシーン
+    // ===========================================================================
+    function buildTestScene() {
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(80, 80),
+        new THREE.MeshStandardMaterial({ color: 0x9c8a73, roughness: 0.95 })
+      );
+      ground.rotation.x = -Math.PI / 2;
+      ground.receiveShadow = true;
+      scene.add(ground);
+      markWalkable(ground);
+
+      const grid = new THREE.GridHelper(80, 40, 0x665a48, 0x7a6c58);
+      grid.material.transparent = true;
+      grid.material.opacity = 0.25;
+      grid.position.y = 0.01;
+      scene.add(grid);
+
+      const stoneMat = new THREE.MeshStandardMaterial({ color: 0x8a7e6e, roughness: 0.9 });
+      const stepMat = new THREE.MeshStandardMaterial({ color: 0xa39684, roughness: 0.85 });
+      const pillarMat = new THREE.MeshStandardMaterial({ color: 0xb89878, roughness: 0.7 });
+
+      const walls = [
+        [-10, 0,  0.6, 16, 1.8],
+        [ 10, 0,  0.6, 16, 1.8],
+        [  0, -8, 16, 0.6, 1.8],
+      ];
+      for (const [cx, cz, sx, sz, h] of walls) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(sx, h, sz), stoneMat);
+        m.position.set(cx, h/2, cz);
+        m.castShadow = true; m.receiveShadow = true;
+        scene.add(m);
+        markBoth(m);
+      }
+
+      const stonePositions = [[-3,-2],[3,-2],[-3,2],[3,2]];
+      for (const [x, z] of stonePositions) {
+        const base = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.4, 0.45, 0.3, 16), stoneMat);
+        base.position.set(x, 0.15, z);
+        base.castShadow = true; base.receiveShadow = true;
+        scene.add(base);
+        markBoth(base);
+
+        const pillar = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.25, 0.3, 4, 16), pillarMat);
+        pillar.position.set(x, 2.3, z);
+        pillar.castShadow = true; pillar.receiveShadow = true;
+        scene.add(pillar);
+        markBoth(pillar);
+      }
+
+      // 階段
+      for (let i = 0; i < 3; i++) {
+        const topY = (i + 1) * 0.25;
+        const z = 11.5 - i * 0.7;
+        const step = new THREE.Mesh(
+          new THREE.BoxGeometry(4, topY, 0.7), stepMat);
+        step.position.set(0, topY/2, z);
+        step.castShadow = true; step.receiveShadow = true;
+        scene.add(step);
+        markWalkable(step);
+      }
+
+      // 基壇
+      const platform = new THREE.Mesh(
+        new THREE.BoxGeometry(8, 0.75, 4), stepMat);
+      platform.position.set(0, 0.375, 14);
+      platform.castShadow = true; platform.receiveShadow = true;
+      scene.add(platform);
+      markBoth(platform);
+
+      const markPillar = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.15, 0.2, 1.5, 12), pillarMat);
+      markPillar.position.set(0, 0.75 + 0.75, 14);
+      markPillar.castShadow = true;
+      scene.add(markPillar);
+      markBoth(markPillar);
+
+      // スロープ + 展望ステージ
+      const ramp = new THREE.Mesh(
+        new THREE.BoxGeometry(2.5, 0.2, 4), stepMat);
+      ramp.position.set(7, 0.4, 0);
+      ramp.rotation.x = -0.2;
+      ramp.castShadow = true; ramp.receiveShadow = true;
+      scene.add(ramp);
+      markWalkable(ramp);
+
+      const stage = new THREE.Mesh(
+        new THREE.BoxGeometry(3, 0.15, 2), stepMat);
+      stage.position.set(7, 0.85, 2.5);
+      stage.castShadow = true; stage.receiveShadow = true;
+      scene.add(stage);
+      markBoth(stage);
+    }
+
+    buildTestScene();
+
+    // ===========================================================================
+    // トリガーゾーン
+    // ===========================================================================
+    const infoPanel = document.getElementById('info-panel');
+    const infoTitle = document.getElementById('info-title');
+    const infoBody = document.getElementById('info-body');
+    function showInfo(title, body) {
+      infoTitle.textContent = title;
+      infoBody.textContent = body;
+      infoPanel.classList.add('visible');
+    }
+    function hideInfo() { infoPanel.classList.remove('visible'); }
+
+    const triggerZones = [
+      {
+        position: new THREE.Vector3(0, 0, 0), radius: 2.5, triggered: false,
+        onEnter: () => showInfo('建物の中央',
+          '礎石の配置から、桁行三間・梁間二間の建物が想定されています。'),
+        onExit: () => hideInfo(),
+      },
+      {
+        position: new THREE.Vector3(0, 0.75, 14), radius: 2.0, triggered: false,
+        onEnter: () => showInfo('基壇の上',
+          'この基壇は神聖な場所として整備されました。0.75m持ち上げられた壇上には祭祀施設が設けられたと考えられます。'),
+        onExit: () => hideInfo(),
+      },
+      {
+        position: new THREE.Vector3(7, 0.85, 2.5), radius: 1.5, triggered: false,
+        onEnter: () => showInfo('展望ステージ',
+          'スロープを登った先の展望地点。遺跡全体を俯瞰できます。'),
+        onExit: () => hideInfo(),
+      },
+    ];
+
+    function updateTriggers(playerPos) {
+      for (const z of triggerZones) {
+        const d = playerPos.distanceTo(z.position);
+        if (d < z.radius && !z.triggered) {
+          z.triggered = true; z.onEnter && z.onEnter();
+        } else if (d >= z.radius * 1.15 && z.triggered) {
+          z.triggered = false; z.onExit && z.onExit();
+        }
+      }
+    }
+
+    // ===========================================================================
+    // ジャイロ
+    // ===========================================================================
+    const deviceState = {
+      alpha: null, beta: null, gamma: null,
+      screenOrient: 0,
+      enabled: false,
+      compassHeading: null,
+      yawOffset: 0,
+    };
+
+    const _zee = new THREE.Vector3(0, 0, 1);
+    const _euler = new THREE.Euler();
+    const _q0 = new THREE.Quaternion();
+    const _q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+
+    function setCameraQuaternion(alpha, beta, gamma, orient) {
+      _euler.set(beta, alpha, -gamma, 'YXZ');
+      camera.quaternion.setFromEuler(_euler);
+      camera.quaternion.multiply(_q1);
+      camera.quaternion.multiply(_q0.setFromAxisAngle(_zee, -orient));
+      if (deviceState.yawOffset !== 0) {
+        const yawQ = new THREE.Quaternion().setFromAxisAngle(
+          new THREE.Vector3(0, 1, 0), deviceState.yawOffset);
+        camera.quaternion.premultiply(yawQ);
+      }
+    }
+
+    function onDeviceOrientation(e) {
+      if (e.alpha === null) return;
+      deviceState.alpha = THREE.MathUtils.degToRad(e.alpha);
+      deviceState.beta  = THREE.MathUtils.degToRad(e.beta);
+      deviceState.gamma = THREE.MathUtils.degToRad(e.gamma);
+      if (e.webkitCompassHeading !== undefined && !isNaN(e.webkitCompassHeading)) {
+        deviceState.compassHeading = e.webkitCompassHeading;
+      }
+    }
+    function onScreenOrientation() {
+      const angle = (screen.orientation && screen.orientation.angle)
+        || window.orientation || 0;
+      deviceState.screenOrient = THREE.MathUtils.degToRad(angle);
+    }
+    onScreenOrientation();
+    window.addEventListener('orientationchange', onScreenOrientation);
+
+    async function requestMotionPermission() {
+      try {
+        if (typeof DeviceOrientationEvent !== 'undefined' &&
+            typeof DeviceOrientationEvent.requestPermission === 'function') {
+          const r = await DeviceOrientationEvent.requestPermission();
+          if (r !== 'granted') {
+            console.warn('motion permission not granted');
+            return false;
+          }
+        }
+        const evtName = ('ondeviceorientationabsolute' in window)
+          ? 'deviceorientationabsolute' : 'deviceorientation';
+        window.addEventListener(evtName, onDeviceOrientation, true);
+        deviceState.enabled = true;
+        return true;
+      } catch (err) {
+        console.error(err);
+        return false;
+      }
+    }
+
+    // ===========================================================================
+    // 入力
+    // ===========================================================================
+    const input = {
+      forward: false,
+      kbd: { w: false, a: false, s: false, d: false },
+      mouseDrag: { active: false, lastX: 0, lastY: 0, yaw: 0, pitch: 0 },
+    };
+
+    canvas.addEventListener('touchstart', (e) => {
+      input.forward = true; e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener('touchend',   () => { input.forward = false; });
+    canvas.addEventListener('touchcancel',() => { input.forward = false; });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'w' || e.key === 'ArrowUp')    input.kbd.w = true;
+      if (e.key === 'a' || e.key === 'ArrowLeft')  input.kbd.a = true;
+      if (e.key === 's' || e.key === 'ArrowDown')  input.kbd.s = true;
+      if (e.key === 'd' || e.key === 'ArrowRight') input.kbd.d = true;
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.key === 'w' || e.key === 'ArrowUp')    input.kbd.w = false;
+      if (e.key === 'a' || e.key === 'ArrowLeft')  input.kbd.a = false;
+      if (e.key === 's' || e.key === 'ArrowDown')  input.kbd.s = false;
+      if (e.key === 'd' || e.key === 'ArrowRight') input.kbd.d = false;
+    });
+    canvas.addEventListener('mousedown', (e) => {
+      input.mouseDrag.active = true;
+      input.mouseDrag.lastX = e.clientX; input.mouseDrag.lastY = e.clientY;
+    });
+    window.addEventListener('mouseup', () => { input.mouseDrag.active = false; });
+    window.addEventListener('mousemove', (e) => {
+      if (!input.mouseDrag.active) return;
+      const dx = e.clientX - input.mouseDrag.lastX;
+      const dy = e.clientY - input.mouseDrag.lastY;
+      input.mouseDrag.yaw   -= dx * 0.003;
+      input.mouseDrag.pitch -= dy * 0.003;
+      input.mouseDrag.pitch = Math.max(-Math.PI/2 + 0.05,
+                              Math.min(Math.PI/2 - 0.05, input.mouseDrag.pitch));
+      input.mouseDrag.lastX = e.clientX; input.mouseDrag.lastY = e.clientY;
+    });
+
+    // ===========================================================================
+    // メインループ
+    // ===========================================================================
+    const clock = new THREE.Clock();
+    const statsEl = document.getElementById('stats');
+    let frameCount = 0;
+    let started = false;
+
+    function tick() {
+      const dt = Math.min(clock.getDelta(), 0.1);
+
+      if (deviceState.enabled && deviceState.alpha !== null) {
+        setCameraQuaternion(
+          deviceState.alpha, deviceState.beta,
+          deviceState.gamma, deviceState.screenOrient);
+      } else {
+        const e = new THREE.Euler(
+          input.mouseDrag.pitch, input.mouseDrag.yaw, 0, 'YXZ');
+        camera.quaternion.setFromEuler(e);
+      }
+
+      const moveVec = new THREE.Vector3();
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      const rgt = new THREE.Vector3(1, 0,  0).applyQuaternion(camera.quaternion);
+      fwd.y = 0; fwd.normalize();
+      rgt.y = 0; rgt.normalize();
+      if (input.forward) moveVec.add(fwd);
+      if (input.kbd.w)   moveVec.add(fwd);
+      if (input.kbd.s)   moveVec.sub(fwd);
+      if (input.kbd.d)   moveVec.add(rgt);
+      if (input.kbd.a)   moveVec.sub(rgt);
+
+      const footY = camera.position.y - CONFIG.eyeHeight;
+
+      if (moveVec.lengthSq() > 0) {
+        moveVec.normalize().multiplyScalar(CONFIG.walkSpeed * dt);
+        const newX = camera.position.x + moveVec.x;
+        if (!isBlocked(newX, camera.position.z, footY)) camera.position.x = newX;
+        const newZ = camera.position.z + moveVec.z;
+        if (!isBlocked(camera.position.x, newZ, footY)) camera.position.z = newZ;
+      }
+
+      const groundY = findGround(
+        camera.position.x, camera.position.z,
+        camera.position.y - CONFIG.eyeHeight);
+      if (groundY !== null) {
+        const targetY = groundY + CONFIG.eyeHeight;
+        const dy = targetY - camera.position.y;
+        const maxClimb = CONFIG.climbSpeed * dt;
+        const maxFall  = CONFIG.fallSpeed  * dt;
+        camera.position.y += Math.max(-maxFall, Math.min(maxClimb, dy));
+      }
+      if (camera.position.y < -50) {
+        camera.position.set(0, CONFIG.eyeHeight, 5);
+      }
+
+      updateTriggers(camera.position);
+
+      if ((frameCount++ % 10) === 0) {
+        const px = camera.position.x.toFixed(1);
+        const py = camera.position.y.toFixed(2);
+        const pz = camera.position.z.toFixed(1);
+        const heading = deviceState.compassHeading !== null
+          ? deviceState.compassHeading.toFixed(0) + '°' : '--';
+        statsEl.innerHTML = `XZ ${px}, ${pz}<br>EYE Y ${py}<br>N ${heading}`;
+      }
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(tick);
+    }
+
+    // ===========================================================================
+    // UI
+    // ===========================================================================
+    document.getElementById('permission-btn').addEventListener('click', async () => {
+      if (started) return;
+      started = true;
+      // 権限はあってもなくても先に進む (失敗してもキーボード/マウスで操作可)
+      try { await requestMotionPermission(); } catch (e) { console.error(e); }
+      document.getElementById('permission-overlay').classList.add('hidden');
+      try {
+        if (document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch (_) { /* iframe等で許可されていない場合 */ }
+      tick();
+    });
+
+    document.getElementById('reset-btn').addEventListener('click', () => {
+      if (deviceState.enabled && deviceState.alpha !== null) {
+        const cur = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+        deviceState.yawOffset -= cur.y;
+      } else {
+        input.mouseDrag.yaw = 0; input.mouseDrag.pitch = 0;
+      }
+      camera.position.set(0, CONFIG.eyeHeight, 5);
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
